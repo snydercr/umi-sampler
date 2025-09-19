@@ -1,0 +1,34 @@
+# CMake
+/build/
+/out/
+/CMakeFiles/
+/CMakeCache.txt
+cmake_install.cmake
+*.cmake
+
+# Ninja
+*.ninja
+.ninja_log
+.ninja_deps
+
+# Visual Studio / VSCode / JetBrains
+/.vs/
+/.vscode/
+/.idea/
+/*.VC.db
+*.VC.opendb
+*.suo
+*.user
+*.ipch
+*.obj
+*.pdb
+*.ilk
+*.tlog
+*.log
+
+# JUCE build artefacts
+/umi_sampler_artefacts/
+
+# OS junk
+.DS_Store
+Thumbs.db
