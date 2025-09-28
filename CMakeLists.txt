@@ -4,6 +4,7 @@ project(umi_sampler VERSION 0.1.0)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+
 # Build options you can flip later
 option(UMI_WITH_DSP "Include juce_dsp" OFF)
 option(UMI_WITH_AUDIO_FORMATS "Enable WAV/AIFF loaders" ON)
@@ -16,6 +17,9 @@ juce_add_console_app(umi_sampler
     PRODUCT_NAME "UMI Sampler"
     VERSION      "${PROJECT_VERSION}"
 )
+
+# Tell JUCE note to use libcurl
+target_compile_definitions(umi_sampler PRIVATE JUCE_USE_CURL=0)
 
 target_sources(umi_sampler PRIVATE
     src/main.cpp
