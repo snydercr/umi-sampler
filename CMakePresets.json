@@ -1,9 +1,6 @@
-﻿{
+{
   "version": 6,
-  "cmakeMinimumRequired": {
-    "major": 3,
-    "minor": 22
-  },
+  "cmakeMinimumRequired": { "major": 3, "minor": 22 },
   "configurePresets": [
     {
       "name": "pi-debug",
@@ -27,27 +24,7 @@
     }
   ],
   "buildPresets": [
-    {
-      "name": "pi-debug",
-      "configurePreset": "pi-debug",
-      "description": "Build debug version on Pi",
-      "jobs": 0
-    },
-    {
-      "name": "pi-release",
-      "configurePreset": "pi-release",
-      "description": "Build release version on Pi",
-      "jobs": 0
-    }
-  ],
-  "testPresets": [
-    {
-      "name": "pi-debug",
-      "configurePreset": "pi-debug"
-    },
-    {
-      "name": "pi-release",
-      "configurePreset": "pi-release"
-    }
+    { "name": "pi-debug",   "configurePreset": "pi-debug",   "jobs": 0 },
+    { "name": "pi-release", "configurePreset": "pi-release", "jobs": 0 }
   ]
 }
