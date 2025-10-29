@@ -21,11 +21,58 @@ int main()
 
     // Print each complete line from the board ("D" or "*")
     // NOTE: In this console app we can print directly (no UI), so no callAsync needed.
-    serial.onLine = [](juce::String s)
+    // after serial.connect(...)
+using namespace std::chrono_literals;
+
+
+/*
+serial.onLine = [&serial](juce::String s)
+{
+    // Blink on 'D' (detected). Ignore '*' (clear).
+    if (s == "D")
     {
-        std::cout << "Serial line: " << s << std::endl;
-        // If you want to react in audio later, you can push to Engine via a thread-safe flag/queue.
-    };
+        serial.sendLine("C5"); // blue
+    } 
+    else 
+    {
+        serial.sendLine("C0"); // off  
+    }
+
+};
+
+*/
+
+
+serial.onLine = [&serial](juce::String s)
+{
+    // Blink on 'D' (detected). Ignore '*' (clear).
+    if (s == "D")
+    {
+        // Simple re-entry guard so we don’t overlap blinks during rapid D spam.
+        static std::atomic<bool> busy { false };
+        bool expected = false;
+        if (!busy.compare_exchange_strong(expected, true))
+            return; // already blinking
+
+        // Turn LED blue, wait, then off. Do it on a detached worker.
+        serial.sendLine("C5"); // blue
+        std::thread([&serial]{
+            std::this_thread::sleep_for(250ms);
+            serial.sendLine("C0"); // off
+            // small cooldown so sustained D doesn’t thrash
+            std::this_thread::sleep_for(150ms);
+            // release guard
+            busy.store(false);
+        }).detach();
+    }
+
+    // Optional: still print for debugging
+    // std::cout << "Serial line: " << s << std::endl;
+};
+
+
+
+
 
     // --- AUDIO ENGINE ---
     Engine engine;
