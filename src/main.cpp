@@ -2,9 +2,10 @@
 #include <atomic>
 #include <thread>
 #include <optional>
+#include <cmath>
 
 #include <juce_core/juce_core.h>
-#include <juce_events/juce_events.h>   
+#include <juce_events/juce_events.h>
 #include <juce_osc/juce_osc.h>
 
 #include "Engine.h"
@@ -50,6 +51,53 @@ struct OscLink {
     }
 };
 
+// ---- super-simple OSC dump receiver (prints anything it gets), now with bundle support ----
+struct DumpRx :
+    juce::OSCReceiver,
+    juce::OSCReceiver::Listener<juce::OSCReceiver::RealtimeCallback>
+{
+    // pretty-print a single OSC message
+    static void printMessage(const juce::OSCMessage& m)
+    {
+        const auto addr = m.getAddressPattern().toString();
+        std::cout << "RX addr=" << addr << " argc=" << m.size();
+        for (int i = 0; i < m.size(); ++i)
+        {
+            if      (m[i].isInt32())   std::cout << "  arg" << i << "=int:"   << m[i].getInt32();
+            else if (m[i].isFloat32()) std::cout << "  arg" << i << "=float:" << m[i].getFloat32();
+            else if (m[i].isString())  std::cout << "  arg" << i << "=str:"   << m[i].getString().toStdString();
+            else if (m[i].isBlob())    std::cout << "  arg" << i << "=blob("  << m[i].getBlob().getSize() << "B)";
+            else                       std::cout << "  arg" << i << "=?";
+        }
+        std::cout << std::endl;
+    }
+
+    // recursively walk a bundle and print all contained messages
+    static void walkBundle(const juce::OSCBundle& b)
+    {
+        for (int i = 0; i < b.size(); ++i)
+        {
+            const auto& el = b[i];
+            if (el.isMessage())
+                printMessage(el.getMessage());
+            else if (el.isBundle())
+                walkBundle(el.getBundle());
+        }
+    }
+
+    // JUCE will call this for single messages
+    void oscMessageReceived (const juce::OSCMessage& m) override
+    {
+        printMessage(m);
+    }
+
+    // JUCE will call this for bundles (what your tcpdump shows: "#bundle")
+    void oscBundleReceived (const juce::OSCBundle& b) override
+    {
+        walkBundle(b);
+    }
+};
+
 int main (int argc, char** argv)
 {
     juce::ignoreUnused(argc, argv);
@@ -71,17 +119,28 @@ int main (int argc, char** argv)
     juce::String macIp     = "192.168.1.100";  // override via --mac-ip
     int          macInPort = 9000;             // override via --mac-in-port
     juce::String deviceId  = "pi-01";          // override via --device-id
+    int          listenPort = 9100;            // NEW: override via --listen-port
 
     {
         juce::StringArray args;
         for (int i = 1; i < argc; ++i) args.add(juce::String(argv[i]));
-        if (auto v = opt(args, "--mac-ip"))      macIp     = *v;
-        if (auto v = opt(args, "--mac-in-port")) macInPort = v->getIntValue();
-        if (auto v = opt(args, "--device-id"))   deviceId  = *v;
+        if (auto v = opt(args, "--mac-ip"))       macIp      = *v;
+        if (auto v = opt(args, "--mac-in-port"))  macInPort  = v->getIntValue();
+        if (auto v = opt(args, "--device-id"))    deviceId   = *v;
+        if (auto v = opt(args, "--listen-port"))  listenPort = v->getIntValue();
     }
 
     std::cout << "OSC upstream target: " << macIp << ":" << macInPort
               << " deviceId=" << deviceId << std::endl;
+
+    // ---- bring up the simple OSC receiver ----
+    DumpRx rx;
+    if (!rx.connect(listenPort)) {
+        std::cerr << "ERROR: couldn't bind OSC receiver on UDP " << listenPort << std::endl;
+    } else {
+        rx.addListener(&rx); // listen to ALL addresses
+        std::cout << "OSC receiver listening on UDP " << listenPort << " (printing all messages)" << std::endl;
+    }
 
     OscLink toMac(macIp, macInPort);
     if (toMac.ensure())
@@ -96,7 +155,7 @@ int main (int argc, char** argv)
         while (running) {
             juce::OSCMessage hello("/umi/hello");
             hello.addString(deviceId);
-            hello.addInt32(9100);                 // placeholder listen port for future downlink
+            hello.addInt32(listenPort);           // advertise our listen port
             hello.addInt32((int) ++helloSeq);     // sequence for visibility
 
             if (!toMac.send(hello)) {
@@ -159,9 +218,11 @@ int main (int argc, char** argv)
         std::cerr << "Failed to start audio. Exiting." << std::endl;
         running = false;
         if (helloThread.joinable()) helloThread.join();
+        rx.removeListener(&rx);
+        rx.disconnect();
         serial.disconnect();
         toMac.disconnect();
-        juce::MessageManager::deleteInstance();   // ✅ clean up MM
+        juce::MessageManager::deleteInstance();
         return 1;
     }
 
@@ -176,10 +237,12 @@ int main (int argc, char** argv)
     engine.stop();
     running = false;
     if (helloThread.joinable()) helloThread.join();
+    rx.removeListener(&rx);
+    rx.disconnect();
     serial.disconnect();
     toMac.disconnect();
 
-    juce::MessageManager::deleteInstance();       // clean up MessageManager
+    juce::MessageManager::deleteInstance();
     std::cout << "Bye!" << std::endl;
     return 0;
 }
