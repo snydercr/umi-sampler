@@ -37,26 +37,22 @@ struct OscLink {
 
     bool send(const juce::OSCMessage& m) {
         if (!ensure()) return false;
-        if (!sender.send(m)) {
-            sender.disconnect();
-            connected = false;
-            return false;
-        }
+        if (!sender.send(m)) { sender.disconnect(); connected = false; return false; }
         return true;
     }
 
-    void disconnect() {
-        sender.disconnect();
-        connected = false;
-    }
+    void disconnect() { sender.disconnect(); connected = false; }
 };
 
-// ---- super-simple OSC dump receiver (prints anything it gets), now with bundle support ----
-struct DumpRx :
+// ---- LED receiver: handles OSC messages & bundles, prints, and sets LED 1/0 ----
+struct LedRx :
     juce::OSCReceiver,
     juce::OSCReceiver::Listener<juce::OSCReceiver::RealtimeCallback>
 {
-    // pretty-print a single OSC message
+    SerialService& serial;
+
+    explicit LedRx(SerialService& s) : serial(s) {}
+
     static void printMessage(const juce::OSCMessage& m)
     {
         const auto addr = m.getAddressPattern().toString();
@@ -72,29 +68,31 @@ struct DumpRx :
         std::cout << std::endl;
     }
 
-    // recursively walk a bundle and print all contained messages
-    static void walkBundle(const juce::OSCBundle& b)
+    void handleMessage(const juce::OSCMessage& m)
+    {
+        printMessage(m);
+
+        if (m.getAddressPattern().toString() != "/umi/led" || m.size() < 1)
+            return;
+
+        int onOff = 0;
+        if      (m[0].isInt32())   onOff = m[0].getInt32();
+        else if (m[0].isFloat32()) onOff = (int) std::lround(m[0].getFloat32());
+
+        // Persisted state: 1 = on (C5), 0 = off (C0)
+        serial.sendLine(onOff != 0 ? "C5" : "C0");
+    }
+
+    void oscMessageReceived (const juce::OSCMessage& m) override { handleMessage(m); }
+
+    void oscBundleReceived (const juce::OSCBundle& b) override
     {
         for (int i = 0; i < b.size(); ++i)
         {
             const auto& el = b[i];
-            if (el.isMessage())
-                printMessage(el.getMessage());
-            else if (el.isBundle())
-                walkBundle(el.getBundle());
+            if (el.isMessage())       handleMessage(el.getMessage());
+            else if (el.isBundle())   oscBundleReceived(el.getBundle()); // recurse
         }
-    }
-
-    // JUCE will call this for single messages
-    void oscMessageReceived (const juce::OSCMessage& m) override
-    {
-        printMessage(m);
-    }
-
-    // JUCE will call this for bundles (what your tcpdump shows: "#bundle")
-    void oscBundleReceived (const juce::OSCBundle& b) override
-    {
-        walkBundle(b);
     }
 };
 
@@ -119,7 +117,7 @@ int main (int argc, char** argv)
     juce::String macIp     = "192.168.1.100";  // override via --mac-ip
     int          macInPort = 9000;             // override via --mac-in-port
     juce::String deviceId  = "pi-01";          // override via --device-id
-    int          listenPort = 9100;            // NEW: override via --listen-port
+    int          listenPort = 9100;            // override via --listen-port
 
     {
         juce::StringArray args;
@@ -133,15 +131,17 @@ int main (int argc, char** argv)
     std::cout << "OSC upstream target: " << macIp << ":" << macInPort
               << " deviceId=" << deviceId << std::endl;
 
-    // ---- bring up the simple OSC receiver ----
-    DumpRx rx;
+    // ---- bring up the LED receiver ----
+    LedRx rx(serial);
     if (!rx.connect(listenPort)) {
         std::cerr << "ERROR: couldn't bind OSC receiver on UDP " << listenPort << std::endl;
     } else {
-        rx.addListener(&rx); // listen to ALL addresses
-        std::cout << "OSC receiver listening on UDP " << listenPort << " (printing all messages)" << std::endl;
+        rx.addListener(&rx); // listen to ALL addresses; gate on /umi/led inside
+        std::cout << "OSC receiver listening on UDP " << listenPort
+                  << " (acting on /umi/led 1/0 persistently)" << std::endl;
     }
 
+    // ---- upstream sender (unchanged) ----
     OscLink toMac(macIp, macInPort);
     if (toMac.ensure())
         std::cout << "Connected to Mac at " << macIp << ":" << macInPort << std::endl;
@@ -157,59 +157,40 @@ int main (int argc, char** argv)
             hello.addString(deviceId);
             hello.addInt32(listenPort);           // advertise our listen port
             hello.addInt32((int) ++helloSeq);     // sequence for visibility
-
-            if (!toMac.send(hello)) {
+            if (!toMac.send(hello))
                 std::cout << "WARN: send(/umi/hello) failed" << std::endl;
-            } else {
-                std::cout << "TX /umi/hello id=" << deviceId
-                          << " seq=" << helloSeq << std::endl;
-            }
-            juce::Thread::sleep(5000); // every 5s
+            else
+                std::cout << "TX /umi/hello id=" << deviceId << " seq=" << helloSeq << std::endl;
+            juce::Thread::sleep(5000);
         }
     });
 
     using namespace std::chrono_literals;
 
-    // ---- serial line handler: keep tiny LED blink + add OSC on D/* ----
-    serial.onLine = [&serial, &toMac, deviceId](juce::String s)
+    // ---- serial line handler: forward sensor events upstream ONLY (no local blink) ----
+    serial.onLine = [&toMac, deviceId](juce::String s)
     {
-        // quick local visual on 'D' so you see activity even without the Mac
-        if (s == "D") {
-            static std::atomic<bool> busy { false };
-            bool expected = false;
-            if (busy.compare_exchange_strong(expected, true)) {
-                serial.sendLine("C5"); // quick blue
-                std::thread([&serial]{
-                    std::this_thread::sleep_for(250ms);
-                    serial.sendLine("C0"); // off
-                    std::this_thread::sleep_for(150ms);
-                    busy.store(false);
-                }).detach();
-            }
-        }
-
         // Send /umi/prox upstream on both 'D' (1) and '*' (0)
         const int detected = (s == "D") ? 1 : (s == "*") ? 0 : -1;
-        if (detected >= 0) {
-            static std::atomic<uint32_t> seq { 0 };
-            const int seqNow = (int) ++seq;
+        if (detected < 0) return;
 
-            juce::OSCMessage prox("/umi/prox");
-            prox.addString(deviceId);
-            prox.addInt32(seqNow);
-            prox.addInt32(detected);
-            prox.addInt32((int) juce::Time::getMillisecondCounter()); // 32-bit monotonic ms
+        static std::atomic<uint32_t> seq { 0 };
+        const int seqNow = (int) ++seq;
 
-            if (!toMac.send(prox)) {
-                std::cout << "WARN: send(/umi/prox) failed (seq=" << seqNow << ")" << std::endl;
-            } else {
-                std::cout << "TX /umi/prox id=" << deviceId
-                          << " det=" << detected
-                          << " seq=" << seqNow
-                          << " ts=" << juce::Time::getMillisecondCounter()
-                          << std::endl;
-            }
-        }
+        juce::OSCMessage prox("/umi/prox");
+        prox.addString(deviceId);
+        prox.addInt32(seqNow);
+        prox.addInt32(detected);
+        prox.addInt32((int) juce::Time::getMillisecondCounter());
+
+        if (!toMac.send(prox))
+            std::cout << "WARN: send(/umi/prox) failed (seq=" << seqNow << ")" << std::endl;
+        else
+            std::cout << "TX /umi/prox id=" << deviceId
+                      << " det=" << detected
+                      << " seq=" << seqNow
+                      << " ts=" << juce::Time::getMillisecondCounter()
+                      << std::endl;
     };
 
     // ---- AUDIO ENGINE (silent) ----
@@ -227,10 +208,7 @@ int main (int argc, char** argv)
     }
 
     std::cout << "Audio running (silent)." << std::endl;
-    std::cout << "Listening on " << dev << " — wave at the sensor to see D/*" << std::endl;
     std::cout << "Press Enter to quit." << std::endl;
-
-    // Block until user quits (serial + hello threads keep running)
     std::cin.get();
 
     // ---- Clean shutdown ----
