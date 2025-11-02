@@ -3,14 +3,14 @@
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_core/juce_core.h>
 
-class SamplerEngine; // forward
+class Sampler; // forward
 
 /** Headless audio engine using AudioSourcePlayer (no callback signature hassles). */
-class Engine
+class AudioProcessor
 {
 public:
-    Engine();
-    ~Engine();
+    AudioProcessor();
+    ~AudioProcessor();
 
     // Start/stop device; safe default is 48k / 256 on Pi/USB
     bool start(double requestedSampleRate = 48000.0, int requestedBlock = 256, int outChannels = 2);
@@ -25,11 +25,11 @@ private:
 
     juce::AudioDeviceManager deviceManager;   // owns the device
     juce::AudioSourcePlayer  player;          // becomes the device's callback
-    std::unique_ptr<SamplerEngine> sampler;   // your future sampler core
+    std::unique_ptr<Sampler> sampler;   // your future sampler core
 
     double sampleRate = 0.0;
     int    blockSize = 0;
     int    numOutputs = 0;
 
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Engine)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AudioProcessor)
 };

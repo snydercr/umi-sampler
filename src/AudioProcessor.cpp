@@ -1,10 +1,10 @@
-#include "Engine.h"
-#include "SamplerEngine.h"
+#include "AudioProcessor.h"
+#include "Sampler.h"
 
-Engine::Engine() {}
-Engine::~Engine() { stop(); }
+AudioProcessor::AudioProcessor() {}
+AudioProcessor::~AudioProcessor() { stop(); }
 
-bool Engine::start(double requestedSampleRate, int requestedBlock, int outChannels)
+bool AudioProcessor::start(double requestedSampleRate, int requestedBlock, int outChannels)
 {
     // Initialise default device: 0 inputs, N outputs
     auto err = deviceManager.initialise(/*numInputChannels*/ 0,
@@ -46,22 +46,22 @@ bool Engine::start(double requestedSampleRate, int requestedBlock, int outChanne
     return true;
 }
 
-void Engine::stop()
+void AudioProcessor::stop()
 {
     deviceManager.removeAudioCallback(&player);
     deviceManager.closeAudioDevice();
     release();
 }
 
-void Engine::prepare(double sr, int block, int outs)
+void AudioProcessor::prepare(double sr, int block, int outs)
 {
-    sampler = std::make_unique<SamplerEngine>();
+    sampler = std::make_unique<Sampler>();
     //sampler->prepare(block, sr); // AudioSource API
 
     //player.setSource(sampler.get());   // route sampler to device
 }
 
-void Engine::release()
+void AudioProcessor::release()
 {
     player.setSource(nullptr); // detach before destroying sampler
     if (sampler)

@@ -2,7 +2,7 @@
 #include <juce_audio_basics/juce_audio_basics.h>
 
 /** Stub sampler core with a plugin-like API you’ll fill in later. */
-class SamplerEngine
+class Sampler
 {
 public:
     void prepare(double sampleRate, int blockSize, int numOutputs)

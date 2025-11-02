@@ -23,10 +23,10 @@ target_compile_definitions(umi_sampler PRIVATE JUCE_USE_CURL=0)
 
 target_sources(umi_sampler PRIVATE
     src/main.cpp
-    src/Engine.h
-    src/Engine.cpp
-    src/SamplerEngine.h
-    src/SamplerEngine.cpp
+    src/AudioProcessor.h
+    src/AudioProcessor.cpp
+    src/Sampler.h
+    src/Sampler.cpp
     src/SerialLinux.h
     src/SerialService.h
 )

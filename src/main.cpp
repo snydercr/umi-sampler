@@ -8,7 +8,7 @@
 #include <juce_events/juce_events.h>
 #include <juce_osc/juce_osc.h>
 
-#include "Engine.h"
+#include "AudioProcessor.h"
 #include "SerialService.h"
 
 // ---- tiny CLI helper ----
@@ -194,8 +194,8 @@ int main (int argc, char** argv)
     };
 
     // ---- AUDIO ENGINE (silent) ----
-    Engine engine;
-    if (!engine.start(48000.0, 256, 2)) {
+    AudioProcessor AudioProcessor;
+    if (!AudioProcessor.start(48000.0, 256, 2)) {
         std::cerr << "Failed to start audio. Exiting." << std::endl;
         running = false;
         if (helloThread.joinable()) helloThread.join();
@@ -212,7 +212,7 @@ int main (int argc, char** argv)
     std::cin.get();
 
     // ---- Clean shutdown ----
-    engine.stop();
+    AudioProcessor.stop();
     running = false;
     if (helloThread.joinable()) helloThread.join();
     rx.removeListener(&rx);
