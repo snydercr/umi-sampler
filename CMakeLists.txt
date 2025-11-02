@@ -29,6 +29,8 @@ target_sources(umi_sampler PRIVATE
     src/Sampler.cpp
     src/SerialLinux.h
     src/SerialService.h
+    src/OscBridge.h
+    src/OscBridge.cpp
 )
 
 # Lean module set for audio + osc + (later) sample loading
