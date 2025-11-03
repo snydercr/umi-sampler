@@ -1,7 +1,9 @@
+// main.cpp
 #include <iostream>
 #include <atomic>
 #include <thread>
 #include <optional>
+#include <csignal>
 
 #include <juce_core/juce_core.h>
 #include <juce_events/juce_events.h>
@@ -19,6 +21,10 @@ static std::optional<juce::String> opt (const juce::StringArray& a, const juce::
     return std::nullopt;
 }
 
+// ---- signal-driven lifetime (no terminal required) ----
+static std::atomic<bool> gRunning { true };
+static void onSignal (int) { gRunning = false; }
+
 int main (int argc, char** argv)
 {
     juce::ignoreUnused(argc, argv);
@@ -27,10 +33,10 @@ int main (int argc, char** argv)
     std::cout << "UMI Sampler starting..." << std::endl;
 
     // ---- CLI config ----
-    juce::String macHost   = "192.168.1.100";  // --mac-host (or ip)
-    int          macInPort = 9000;             // --mac-in-port
-    juce::String deviceId  = "pi-01";          // --device-id
-    int          listenPort = 9100;            // --listen-port
+    juce::String macHost    = "192.168.1.100";  // --mac-host (or --mac-ip)
+    int          macInPort  = 9000;             // --mac-in-port
+    juce::String deviceId   = "pi-01";          // --device-id
+    int          listenPort = 9100;             // --listen-port
     const juce::String serialDev = "/dev/ttyUSB0";
 
     {
@@ -60,7 +66,6 @@ int main (int argc, char** argv)
     }
 
     // ---- Forward serial events upstream ----
-    using namespace std::chrono;
     serial.onLine = [&osc, deviceId](juce::String s)
     {
         const int detected = (s == "D") ? 1 : (s == "*") ? 0 : -1;
@@ -75,19 +80,24 @@ int main (int argc, char** argv)
     AudioProcessor audio;
     if (!audio.start(48000.0, 256, 2)) {
         std::cerr << "Failed to start audio. Exiting." << std::endl;
-        // ensure LED off before exit
-        serial.sendLine("C0");
+        serial.sendLine("C0"); // ensure LED off on failure
         osc.stop();
         serial.disconnect();
         juce::MessageManager::deleteInstance();
         return 1;
     }
 
-    std::cout << "Audio running (silent). Press Enter to quit." << std::endl;
-    std::cin.get();
+    // ---- signals & run loop (replaces std::cin.get()) ----
+    std::signal(SIGINT,  onSignal);
+    std::signal(SIGTERM, onSignal);
+    std::signal(SIGHUP,  onSignal);
+
+    std::cout << "Running (Ctrl+C or SIGTERM to quit)..." << std::endl;
+    while (gRunning)
+        juce::Thread::sleep(100);
 
     // ---- Clean shutdown ----
-    serial.sendLine("C0");   // LED off on exit (safe even if not LED-driven later)
+    serial.sendLine("C0");   // LED off on exit (safe even if LED control moves elsewhere)
     audio.stop();
     osc.stop();
     serial.disconnect();
