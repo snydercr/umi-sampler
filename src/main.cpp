@@ -27,7 +27,7 @@ int main (int argc, char** argv)
     std::cout << "UMI Sampler starting..." << std::endl;
 
     // ---- CLI config ----
-    juce::String macHost   = "10.0.0.166";  // --mac-host (or ip)
+    juce::String macHost   = "192.168.1.100";  // --mac-host (or ip)
     int          macInPort = 9000;             // --mac-in-port
     juce::String deviceId  = "pi-01";          // --device-id
     int          listenPort = 9100;            // --listen-port
